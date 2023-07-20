@@ -104,7 +104,6 @@ class SinaSpider(scrapy.Spider):
 
         blog_url = 'https://m.weibo.cn/statuses/extend?id=' + str(meta['blogs'][meta['index']]['id'])
         meta['index'] += 1
-        time.sleep(3)
         yield Request(blog_url, headers=get_header(), callback=self.get_blog, meta=meta)
 
     def get_blog(self, response):
@@ -125,7 +124,6 @@ class SinaSpider(scrapy.Spider):
         header= get_header()
         if 'repost_from' in meta['blogs'][index-1]:
             repost_blog_url = 'https://m.weibo.cn/statuses/extend?id=' + str(meta['blogs'][index-1]['repost_id'])
-            time.sleep(3)
             yield Request(repost_blog_url, headers=header, callback=self.get_repost, meta=meta, dont_filter = True)
         else:
             if index == len(meta['blogs']):
@@ -134,13 +132,11 @@ class SinaSpider(scrapy.Spider):
                     self.CurCrawlIdx+=1
                     meta['next_user'] = True
                     next_page = News[todolist[self.CurCrawlIdx]]
-                time.sleep(3)
                 meta['url'] = next_page
                 yield Request(next_page, headers=header, callback=self.get_page, meta=meta, dont_filter = True)
             else:
                 next_blog = 'https://m.weibo.cn/statuses/extend?id=' + str(meta['blogs'][index]['id'])
                 meta['index'] += 1
-                time.sleep(3)
                 yield Request(next_blog, headers=header, callback=self.get_blog, meta=meta, dont_filter = True)
 
     def get_repost(self, response):
@@ -161,12 +157,10 @@ class SinaSpider(scrapy.Spider):
         header= get_header()
         if index == len(meta['blogs']):
             next_page = News[todolist[self.CurCrawlIdx]] + '&since_id=' + str(meta['since_id'])
-            time.sleep(3)
             yield Request(next_page, headers=header, callback=self.get_page, meta=meta, dont_filter = True)
         else:
             next_blog = 'https://m.weibo.cn/statuses/extend?id=' + str(meta['blogs'][index]['id'])
             meta['index'] += 1
-            time.sleep(3)
             yield Request(next_blog, headers=header, callback=self.get_blog, meta=meta, dont_filter = True)
         
     def parse(self, response):
