@@ -1,9 +1,11 @@
 import scrapy
 from scrapy.http import Request
+from SinaSpider.items import SinaspiderItem
 import random
 import json
 import time
 import csv
+from bs4 import BeautifulSoup
 
 # FIXME Config Settings
 
@@ -20,6 +22,16 @@ UserAgent = [
     'Mozilla/5.0 (Windows NT 6.3; WOW64; rv:40.0) Gecko/20100101 Firefox/40.0'
 ]
 
+News ={
+    'SinaNews' : 'https://m.weibo.cn/api/container/getIndex?&type=uid&value=2028810631&containerid=1076032028810631'
+}
+
+Count = {
+    'SinaNews' : 0    
+}
+
+todolist = ['SinaNews']
+
 def get_header():
     header = {
         'UserAgent' : UserAgent[random.randint(0,len(UserAgent) - 1)],
@@ -35,17 +47,21 @@ def get_header():
 class SinaSpider(scrapy.Spider):
     name = "sina"
     allowed_domains = ["m.weibo.cn"]
-    start_urls = ["https://m.weibo.cn/api/container/getIndex?t=0&luicode=10000011&lfid=100103type%3D1%26q%3Dsensetime&containerid=1076035477684004&since_id=4775625736848835"]
-    output_csv = './output/output.csv'
+    start_urls = []
+    output_csv = ''
+    CurCrawlIdx = 0
 
     def start_requests(self):
         header = get_header()
-        yield Request(url = self.start_urls[0],headers=header, callback=self.get_page)
+        yield Request(url = News[todolist[self.CurCrawlIdx]],headers=header, callback=self.get_page)
 
     def get_page(self, response):
         page_content = json.loads(response.text)
         last_crawled_data = response.meta
         if 'blogs' in last_crawled_data:
+            self.output_csv = './output/' + todolist[self.CurCrawlIdx] + '.csv'
+            if 'next_user' in last_crawled_data:\
+                self.output_csv = './output/' + todolist[self.CurCrawlIdx-1] + '.csv'
             with open(self.output_csv, 'a', newline='') as csvfile:
                 writer = csv.writer(csvfile)
                 for blog in last_crawled_data['blogs']:
@@ -53,10 +69,21 @@ class SinaSpider(scrapy.Spider):
                     if 'repost_from' in blog:
                         data.append(blog['repost_from'])
                         data.append(blog['repost_content'])
+                    else:
+                        data.append("")
+                        data.append("")
                     
                     writer.writerow(data)
-                    
-        since_id = page_content['data']['cardlistInfo']['since_id']
+        since_id = None
+        if 'data' in page_content:
+            if 'cardlistInfo' in page_content['data']:
+                if 'since_id' in page_content['data']['cardlistInfo']:
+                    since_id = page_content['data']['cardlistInfo']['since_id']
+        if since_id == None:
+            time.sleep(20)
+            retry_url = response.meta['url']
+            yield Request(retry_url, headers=get_header(), callback=self.get_page, meta=response.meta, dont_filter = True)
+
         meta = {'index' : 0, 'since_id':since_id, "blogs":[]}
 
         for blog in page_content['data']['cards']:
@@ -86,11 +113,14 @@ class SinaSpider(scrapy.Spider):
             blog_data = blog_json['msg']
         else:
             blog_data = blog_json['data']['longTextContent']
+            Count[todolist[self.CurCrawlIdx]] +=1 
 
         meta = response.meta
         index = meta['index']
         
-        meta['blogs'][index-1]['content'] = blog_data
+        soup = BeautifulSoup(blog_data,features="lxml")
+
+        meta['blogs'][index-1]['content'] = soup.find_all('body')[0].text
 
         header= get_header()
         if 'repost_from' in meta['blogs'][index-1]:
@@ -99,8 +129,13 @@ class SinaSpider(scrapy.Spider):
             yield Request(repost_blog_url, headers=header, callback=self.get_repost, meta=meta, dont_filter = True)
         else:
             if index == len(meta['blogs']):
-                next_page = self.start_urls[0] + '&since_id=' + str(meta['since_id'])
+                next_page = News[todolist[self.CurCrawlIdx]] + '&since_id=' + str(meta['since_id'])
+                if (Count[todolist[self.CurCrawlIdx]] >= 1000):
+                    self.CurCrawlIdx+=1
+                    meta['next_user'] = True
+                    next_page = News[todolist[self.CurCrawlIdx]]
                 time.sleep(3)
+                meta['url'] = next_page
                 yield Request(next_page, headers=header, callback=self.get_page, meta=meta, dont_filter = True)
             else:
                 next_blog = 'https://m.weibo.cn/statuses/extend?id=' + str(meta['blogs'][index]['id'])
@@ -114,15 +149,18 @@ class SinaSpider(scrapy.Spider):
             blog_data = blog_json['msg']
         else:
             blog_data = blog_json['data']['longTextContent']
-        print(blog_data)
-        print("-"*50)
+
         # FIXME: Nested repost
         meta = response.meta
         index = meta['index']
-        meta['blogs'][index-1]['repost_content'] = blog_data
+        soup = BeautifulSoup(blog_data,features="lxml")
+        meta['blogs'][index-1]['repost_content'] = soup.find_all('body')[0].text
+        print("-"*50)
+        print(meta['blogs'][index-1]['repost_content'])
+        
         header= get_header()
         if index == len(meta['blogs']):
-            next_page = self.start_urls[0] + '&since_id=' + str(meta['since_id'])
+            next_page = News[todolist[self.CurCrawlIdx]] + '&since_id=' + str(meta['since_id'])
             time.sleep(3)
             yield Request(next_page, headers=header, callback=self.get_page, meta=meta, dont_filter = True)
         else:
@@ -130,3 +168,8 @@ class SinaSpider(scrapy.Spider):
             meta['index'] += 1
             time.sleep(3)
             yield Request(next_blog, headers=header, callback=self.get_blog, meta=meta, dont_filter = True)
+        
+    def parse(self, response):
+        Item = SinaspiderItem()
+
+        return Item
